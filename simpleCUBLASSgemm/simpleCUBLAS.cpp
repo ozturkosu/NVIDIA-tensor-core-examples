@@ -50,7 +50,7 @@
 #include <helper_cuda.h>
 
 /* Matrix size - Size increased for Tesnor Core use. */
-#define N (1024)
+//#define N (1024)
 /* Matrix size - This has been kept small to reduce host runtime */
 //#define N (512)
 
@@ -81,11 +81,16 @@ int main(int argc, char **argv) {
   float *h_B;
   float *h_C;
   float *h_C_ref;
+
   float *d_A = 0;
   float *d_B = 0;
   float *d_C = 0;
+
+  int N = atoi(argv[1]) ;
+
   float alpha = 1.0f;
   float beta = 0.0f;
+
   int n2 = N * N;
   int i;
   float error_norm;
@@ -187,13 +192,30 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  /* Performs operation using plain C code */
-  simple_sgemm(N, alpha, h_A, h_B, beta, h_C);
-  h_C_ref = h_C;
+ 
 
+  //Create Cuda Event for time
+  float time_cublassSgemm = 0;
+  cudaEvent_t timeStart_Sgemm, timeEnd_Sgemm ;
+
+  cudaEventCreate(&timeStart_Sgemm);
+  cudaEventCreate(&timeEnd_Sgemm) ;
+
+  cudaEventRecord(timeStart_Sgemm, 0) ;
   /* Performs operation using cublas */
   status = cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, N, N, &alpha, d_A,
                        N, d_B, N, &beta, d_C, N);
+  //
+  
+  cudaEventRecord(timeEnd_Sgemm, 0) ;
+  cudaEventSynchronize(timeEnd_Sgemm);
+  cudaEventElapsedTime(&time_cublassSgemm , timeStart_Sgemm, timeEnd_Sgemm );
+
+  fprintf(stderr, "Time  for cublasSgemm function  %f milisecond \n", time_cublassSgemm);
+
+  /* Performs operation using plain C code */
+  simple_sgemm(N, alpha, h_A, h_B, beta, h_C);
+  h_C_ref = h_C;
 
   if (status != CUBLAS_STATUS_SUCCESS) {
     fprintf(stderr, "!!!! kernel execution error.\n");

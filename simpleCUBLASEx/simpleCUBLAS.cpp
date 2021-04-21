@@ -43,6 +43,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <iostream>
+#include <cstdio>  
+#include <cstdlib> 
+
+using namespace std;
 
 /* Includes, cuda */
 #include <cublas_v2.h>
@@ -55,43 +60,96 @@
 //#define N (512)
 
 /* Host implementation of a simple version of sgemm */
-static void simple_sgemm(int n, float alpha, const float *A, const float *B,
-                         float beta, float *C) {
+// static void simple_sgemm(int n, float alpha, const float *A, const float *B,
+//                          float beta, float *C) {
+//   int i;
+//   int j;
+//   int k;
+
+//   for (i = 0; i < n; ++i) {
+//     for (j = 0; j < n; ++j) {
+//       half prod = 0.0f;
+
+//       for (k = 0; k < n; ++k) {
+//         prod = prod + (half)A[k * n + i] * (half)B[j * n + k];
+//       }
+
+//       C[j * n + i] = (float)((half)alpha * (half)prod + (half)beta * (half)C[j * n + i]);
+//     }
+//   }
+// }
+
+static void simple_sgemm(int n, float alpha, const __half *A, const __half *B,
+                         float beta, __half *C) {
   int i;
   int j;
   int k;
 
   for (i = 0; i < n; ++i) {
     for (j = 0; j < n; ++j) {
-      half prod = 0.0f;
+      __half prod = 0.0f;
 
       for (k = 0; k < n; ++k) {
-        prod = prod + (half)A[k * n + i] * (half)B[j * n + k];
+        prod = prod + A[k * n + i] * B[j * n + k];
       }
 
-      C[j * n + i] = (float)((half)alpha * (half)prod + (half)beta * (half)C[j * n + i]);
+      C[j * n + i] = alpha * prod + beta * C[j * n + i];
     }
   }
 }
 
+
+
 /* Main */
 int main(int argc, char **argv) {
-  cublasStatus_t status;
-  float *h_A;
-  float *h_B;
-  float *h_C;
-  float *h_C_ref;
-  float *d_A = 0;
-  float *d_B = 0;
-  float *d_C = 0;
+  //cublasStatus_t status;
+
+  cublasHandle_t handle;
+  cublasStatus_t status = cublasCreate(&handle);
+  status = cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
+
+  int size = atoi(argv[1]) ;
+
+  cout << " Size N =" << size << endl;
+
+  // float *h_A;
+  // float *h_B;
+  // float *h_C;
+
+  // float *h_C_ref;
+
+  // float *d_A = 0;
+  // float *d_B = 0;
+  // float *d_C = 0;
+
+  __half * h_A;
+  __half*  h_B;
+  __half*  h_C;
+
+  __half*  h_final ;
+
+  __half* d_A = 0 ;
+  __half* d_B = 0;
+  __half *d_C = 0;
+
+  __half *h_C_ref;
+
   float alpha = 1.0f;
   float beta = 0.0f;
-  int n2 = N * N;
+  //int n2 = N * N;
+  int n2 = size * size ;
   int i;
+
   float error_norm;
   float ref_norm;
   float diff;
-  cublasHandle_t handle;
+
+
+  // __half error_norm ;
+  // __half ref_norm ;
+  // __half diff ;
+
+  
 
   int dev = findCudaDevice(argc, (const char **)argv);
 
@@ -102,40 +160,51 @@ int main(int argc, char **argv) {
   /* Initialize CUBLAS */
   printf("simpleCUBLAS test running..\n");
 
-  status = cublasCreate(&handle);
+  //status = cublasCreate(&handle);
 
   if (status != CUBLAS_STATUS_SUCCESS) {
     fprintf(stderr, "!!!! CUBLAS initialization error\n");
     return EXIT_FAILURE;
   }
 
-  /* Allocate host memory for the matrices */
-  h_A = reinterpret_cast<float *>(malloc(n2 * sizeof(h_A[0])));
+  // /* Allocate host memory for the matrices */
+  // h_A = reinterpret_cast<float *>(malloc(n2 * sizeof(h_A[0])));
 
-  if (h_A == 0) {
-    fprintf(stderr, "!!!! host memory allocation error (A)\n");
-    return EXIT_FAILURE;
-  }
+  // if (h_A == 0) {
+  //   fprintf(stderr, "!!!! host memory allocation error (A)\n");
+  //   return EXIT_FAILURE;
+  // }
 
-  h_B = reinterpret_cast<float *>(malloc(n2 * sizeof(h_B[0])));
+  // h_B = reinterpret_cast<float *>(malloc(n2 * sizeof(h_B[0])));
 
-  if (h_B == 0) {
-    fprintf(stderr, "!!!! host memory allocation error (B)\n");
-    return EXIT_FAILURE;
-  }
+  // if (h_B == 0) {
+  //   fprintf(stderr, "!!!! host memory allocation error (B)\n");
+  //   return EXIT_FAILURE;
+  // }
 
-  h_C = reinterpret_cast<float *>(malloc(n2 * sizeof(h_C[0])));
+  // h_C = reinterpret_cast<float *>(malloc(n2 * sizeof(h_C[0])));
 
-  if (h_C == 0) {
-    fprintf(stderr, "!!!! host memory allocation error (C)\n");
-    return EXIT_FAILURE;
-  }
+  // if (h_C == 0) {
+  //   fprintf(stderr, "!!!! host memory allocation error (C)\n");
+  //   return EXIT_FAILURE;
+  // }
+
+  h_A = new __half[n2] ;
+  h_B = new __half[n2] ;
+  h_C = new __half[n2] ;
+  h_final = new __half[n2] ;
+  //h_C_ref = new __half[n2];
 
   /* Fill the matrices with test data */
   for (i = 0; i < n2; i++) {
-    h_A[i] = rand() / static_cast<float>(RAND_MAX);
-    h_B[i] = rand() / static_cast<float>(RAND_MAX);
-    h_C[i] = rand() / static_cast<float>(RAND_MAX);
+    // h_A[i] = rand() / static_cast<float>(RAND_MAX);
+    // h_B[i] = rand() / static_cast<float>(RAND_MAX);
+    // h_C[i] = rand() / static_cast<float>(RAND_MAX);
+    h_A[i] = static_cast<__half>(static_cast<float>(std::rand() % 10));
+    h_B[i] = static_cast<__half>(static_cast<float>(std::rand() % 10));
+    h_C[i] = static_cast<__half>(static_cast<float>(std::rand() % 10));
+    h_final[i] = static_cast<__half>(static_cast<float>(std::rand() % 10));
+
   }
 
   /* Allocate device memory for the matrices */
@@ -179,17 +248,53 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
+
+  //Create Cuda Event for time
+  float time_cublassGemmEx = 0;
+  cudaEvent_t timeStart_gemmEx, timeEnd_gemmEx ;
+
+  cudaEventCreate(&timeStart_gemmEx);
+  cudaEventCreate(&timeEnd_gemmEx) ;
+  cudaEventRecord(timeStart_gemmEx, 0) ;
+
+
+
+  // /* Performs operation using cublas */
+  // status = cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, N, N, &alpha, 
+  //                       d_A, CUDA_R_32F, N,             /* 32-bit float A */
+  //                       d_B, CUDA_R_32F, N, &beta,      /* 32-bit float B */
+  //                       d_C, CUDA_R_32F, N,             /* 32-bit float C */
+  //                       CUDA_R_32F,                     /* 32-bit computation */
+  //                       CUBLAS_GEMM_DEFAULT_TENSOR_OP); /* Enable automatic conversion to 16-bit */
+
+  /* Performs operation using cublas */
+  status = cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, size, size, size, &alpha, 
+                        d_A, CUDA_R_16F, size,             /* 16-bit float A */
+                        d_B, CUDA_R_16F, size, &beta,      /* 16-bit float B */
+                        d_C, CUDA_R_16F, size,             /* 16-bit float C */
+                        CUDA_R_32F,                     /* 32-bit computation */
+                        CUBLAS_GEMM_DEFAULT_TENSOR_OP); /* Enable automatic conversion to 16-bit */
+
+  cudaEventRecord(timeEnd_gemmEx, 0) ;
+  cudaEventSynchronize(timeEnd_gemmEx);
+  cudaEventElapsedTime(&time_cublassGemmEx , timeStart_gemmEx, timeEnd_gemmEx );
+
+
+  fprintf(stderr, "Time  for cuBLASS GemmEx function  %f milisecond \n", time_cublassGemmEx);
+
+  cout << "Host Operation is starting" << endl ;
   /* Performs operation using plain C code */
   simple_sgemm(N, alpha, h_A, h_B, beta, h_C);
   h_C_ref = h_C;
 
-  /* Performs operation using cublas */
-  status = cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, N, N, &alpha, 
-                        d_A, CUDA_R_32F, N,             /* 32-bit float A */
-                        d_B, CUDA_R_32F, N, &beta,      /* 32-bit float B */
-                        d_C, CUDA_R_32F, N,             /* 32-bit float C */
-                        CUDA_R_32F,                     /* 32-bit computation */
-                        CUBLAS_GEMM_DEFAULT_TENSOR_OP); /* Enable automatic conversion to 16-bit */
+  cout << "Host Operation is done" << endl ;
+
+  // cout << "Host Operation is starting" << endl ;
+
+  // simple_sgemm(size, alpha, h_A, h_B, beta, h_C_ref);
+
+  //  cout << "Host Operation is done" << endl ;
+
 
   if (status != CUBLAS_STATUS_SUCCESS) {
     fprintf(stderr, "!!!! kernel execution error.\n");
@@ -197,7 +302,10 @@ int main(int argc, char **argv) {
   }
 
   /* Allocate host memory for reading back the result from device memory */
-  h_C = reinterpret_cast<float *>(malloc(n2 * sizeof(h_C[0])));
+  //h_C = reinterpret_cast<float *>(malloc(n2 * sizeof(h_C[0])));
+  //h_C = reinterpret_cast<__half *>(malloc(n2 * sizeof(h_C[0])));
+
+  //h_C = new __half[n2] ;
 
   if (h_C == 0) {
     fprintf(stderr, "!!!! host memory allocation error (C)\n");
@@ -205,7 +313,16 @@ int main(int argc, char **argv) {
   }
 
   /* Read the result back */
-  status = cublasGetVector(n2, sizeof(h_C[0]), d_C, 1, h_C, 1);
+
+  //cout << "Get Final Result from GPU " << endl ;
+  
+  //status = cublasGetVector(n2, sizeof(h_C[0]), d_C, 1, h_C, 1);
+
+  cout << "Get Final Result from GPU " << endl ;
+
+  status = cublasGetVector(n2, sizeof(h_final[0]), d_C, 1, h_final, 1);
+
+  cout << "GPU to CPU transfer is done" << endl ;
 
   if (status != CUBLAS_STATUS_SUCCESS) {
     fprintf(stderr, "!!!! device access error (read C)\n");
@@ -216,14 +333,29 @@ int main(int argc, char **argv) {
   error_norm = 0;
   ref_norm = 0;
 
+  // for (i = 0; i < n2; ++i) {
+  //   diff = h_C_ref[i] - h_C[i];
+  //   error_norm += diff * diff;
+  //   ref_norm += h_C_ref[i] * h_C_ref[i];
+    
+  // }
+
+  cout << "Validation Test" << endl ;
+
   for (i = 0; i < n2; ++i) {
-    diff = h_C_ref[i] - h_C[i];
+    diff = h_C_ref[i] - h_final[i];
     error_norm += diff * diff;
     ref_norm += h_C_ref[i] * h_C_ref[i];
+    
   }
+
+
 
   error_norm = static_cast<float>(sqrt(static_cast<double>(error_norm)));
   ref_norm = static_cast<float>(sqrt(static_cast<double>(ref_norm)));
+
+  //  error_norm = static_cast<__half>(sqrt(static_cast<double>(error_norm)));
+  //  ref_norm = static_cast<__half>(sqrt(static_cast<double>(ref_norm)));
 
   if (fabs(ref_norm) < 1e-7) {
     fprintf(stderr, "!!!! reference norm is 0\n");
@@ -235,6 +367,7 @@ int main(int argc, char **argv) {
   free(h_B);
   free(h_C);
   free(h_C_ref);
+  free(h_final) ;
 
   if (cudaFree(d_A) != cudaSuccess) {
     fprintf(stderr, "!!!! memory free error (A)\n");

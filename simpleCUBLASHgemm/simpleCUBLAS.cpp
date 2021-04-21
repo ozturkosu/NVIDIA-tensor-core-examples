@@ -43,6 +43,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <iostream>
+#include <cstdio>  
+#include <cstdlib> 
 
 /* Includes, cuda */
 #include <cublas_v2.h>
@@ -50,7 +53,7 @@
 #include <helper_cuda.h>
 
 /* Matrix size */
-#define N (512)
+//#define N (512)
 
 /* Host implementation of a simple version of hgemm */
 static void simple_hgemm(int n, half alpha, const half *A, const half *B,
@@ -79,11 +82,16 @@ int main(int argc, char **argv) {
   half *h_B;
   half *h_C;
   half *h_C_ref;
+
   half *d_A = 0;
   half *d_B = 0;
+
   half *d_C = 0;
   half alpha = 1.0f;
   half beta = 0.0f;
+
+  int N = atoi(argv[1]) ;
+
   int n2 = N * N;
   int i;
   half error_norm;
@@ -92,6 +100,7 @@ int main(int argc, char **argv) {
   cublasHandle_t handle;
 
   int dev = findCudaDevice(argc, (const char **)argv);
+
 
   if (dev == -1) {
     return EXIT_FAILURE;
@@ -185,13 +194,31 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  /* Performs operation using plain C code */
-  simple_hgemm(N, alpha, h_A, h_B, beta, h_C);
-  h_C_ref = h_C;
+  
+
+  float time_cublassHgemm = 0;
+  cudaEvent_t timeStart_Hgemm, timeEnd_Hgemm ;
+
+  cudaEventCreate(&timeStart_Hgemm);
+  cudaEventCreate(&timeEnd_Hgemm) ;
+  cudaEventRecord(timeStart_Hgemm, 0) ;
+
+
 
   /* Performs operation using cublas */
   status = cublasHgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, N, N, &alpha, d_A,
                        N, d_B, N, &beta, d_C, N);
+
+  cudaEventRecord(timeEnd_Hgemm, 0) ;
+  cudaEventSynchronize(timeEnd_Hgemm);
+  cudaEventElapsedTime(&time_cublassHgemm , timeStart_Hgemm, timeEnd_Hgemm );
+
+  fprintf(stderr, "Time for cuBLASS_Hgemm function  %f milisecond \n", time_cublassHgemm );
+
+  /* Performs operation using plain C code */
+  simple_hgemm(N, alpha, h_A, h_B, beta, h_C);
+  h_C_ref = h_C;
+  
 
   if (status != CUBLAS_STATUS_SUCCESS) {
     fprintf(stderr, "!!!! kernel execution error.\n");
@@ -222,6 +249,11 @@ int main(int argc, char **argv) {
     diff = h_C_ref[i] - h_C[i];
     error_norm = error_norm + diff * diff;
     ref_norm = ref_norm + h_C_ref[i] * h_C_ref[i];
+    // if(fabs(h_C_ref[i] - h_C[i]) > 0.1f)
+    // {
+    //      printf("mismatch i=%d result_hD=%f result_host=%f\n", i, (float)h_C[i],
+    //          (float)h_C_ref[i]);
+    // }
   }
 
   error_norm = static_cast<half>(sqrt(static_cast<double>(error_norm)));
